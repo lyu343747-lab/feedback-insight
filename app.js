@@ -456,7 +456,7 @@ async function analyzeOne(feedback, retries = 2) {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
       },
       body: JSON.stringify({
         model: MODEL_NAME,

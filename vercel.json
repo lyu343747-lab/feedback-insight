@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/deepseek",
+      "destination": "https://api.deepseek.com/v1/chat/completions"
+    }
+  ]
+}

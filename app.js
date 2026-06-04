@@ -9,7 +9,7 @@
 // ──────────────────────────────────────────────
 const DEEPSEEK_API_KEY = window.DEEPSEEK_API_KEY || '';
 
-const API_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
+const API_ENDPOINT = '/api/deepseek';
 const MODEL_NAME    = 'deepseek-v4-pro';
 
 const SYSTEM_PROMPT = [

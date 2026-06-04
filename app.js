@@ -1,297 +1,174 @@
-/* ================================================================
-   用户反馈分析工具 — App Logic
-   ================================================================
-   使用方法：将下面的 DEEPSEEK_API_KEY 替换为你的真实 Key 即可运行。
-   ================================================================ */
+  <!DOCTYPE html>
+  <html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户反馈分析工具</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
 
-// ──────────────────────────────────────────────
-// 🔑 API 配置 — sk-7deff0d99db34d99a74bd3b73bb2ef3e
-// ──────────────────────────────────────────────
-const DEEPSEEK_API_KEY = 'YOUR_DEEPSEEK_API_KEY_HERE';
+    <!-- ====== Header ====== -->
+    <header class="header">
+      <div class="header-inner">
+        <span class="logo-dot"></span>
+        <h1>用户反馈分析工具</h1>
+      </div>
+    </header>
 
-const API_ENDPOINT = 'https://deepseek-proxy.young-thunder-06b5.lyu343747.workers.dev';
-const MODEL_NAME    = 'deepseek-v4-pro';
+    <!-- ====== Main Layout : 三栏 ====== -->
+    <main class="main">
 
-const SYSTEM_PROMPT = [
-  '你是一个用户反馈分析专家。请分析以下用户反馈，',
-  '返回纯JSON格式，包含三个字段：',
-  'sentiment（正面/负面/中性）、',
-  'category（功能需求/bug反馈/体验问题/性能问题/其他）、',
-  'insight（一句话总结用户核心诉求）。',
-  '不要返回JSON之外的任何内容。',
-].join('');
+      <!-- 左栏：输入区 -->
+      <section class="panel panel-input">
+        <div class="panel-header">
+          <h2>📥 反馈输入</h2>
+          <span class="hint" id="countHint">已输入 0 条</span>
+        </div>
 
-// ──────────────────────────────────────────────
-// DOM 引用
-// ──────────────────────────────────────────────
-const $ = (sel) => document.querySelector(sel);
+        <!-- CSV 文件上传区域 -->
+        <div id="uploadZone" class="upload-zone">
+          <div class="upload-zone-content">
+            <span class="upload-icon" id="uploadIcon">📁</span>
+            <div class="upload-text">
+              <span id="uploadLabel">点击上传或拖拽 CSV 文件到此处</span>
+              <span id="uploadFileName" class="upload-filename" style="display:none;"></span>
+            </div>
+            <span id="uploadStatus" class="upload-status" style="display:none;"></span>
+          </div>
+          <input type="file" id="uploadZoneFileInput" accept=".csv" class="upload-file-input">
+        </div>
 
-const feedbackInput    = $('#feedbackInput');
-const analyzeBtn       = $('#analyzeBtn');
-const countHint        = $('#countHint');
-const progressSection  = $('#progressSection');
-const progressLabel    = $('#progressLabel');
-const progressPercent  = $('#progressPercent');
-const progressBar      = $('#progressBar');
-const resultsContainer = $('#resultsContainer');
-const emptyState       = $('#emptyState');
-const resultHint       = $('#resultHint');
-const errorBanner      = $('#errorBanner');
-const errorText        = $('#errorText');
-const dismissError     = $('#dismissError');
+        <!-- 上传错误提示 -->
+        <div id="uploadError" class="upload-error" style="display:none;"></div>
 
-// ──────────────────────────────────────────────
-// 状态
-// ──────────────────────────────────────────────
-let feedbacks  = [];   // 当前待分析的反馈列表
-let results    = [];   // 已返回的分析结果
-let isAnalyzing = false;
-let abortCtrl  = null; // AbortController
+        <!-- 新增上传区域 -->
+        <div class="upload-area" id="uploadArea">
+          <p>点击上传或拖拽CSV文件到此处</p>
+        </div>
+        <input type="file" id="fileInput" accept=".csv" hidden>
 
-// ──────────────────────────────────────────────
-// 工具函数
-// ──────────────────────────────────────────────
+        <textarea
+          id="feedbackInput"
+          class="input-area"
+          placeholder="在此粘贴用户反馈，每条占一行&#10;&#10;例如：&#10;登录页面加载太慢了，每次都要等5秒以上&#10;客服回复很快，态度也很好，点赞&#10;希望能增加批量导出功能"
+        ></textarea>
 
-/** 解析 textarea 中的反馈（换行分隔，去除空行） */
-function parseFeedbacks() {
-  const raw = feedbackInput.value.trim();
-  if (!raw) return [];
-  return raw.split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0);
-}
+        <button id="analyzeBtn" class="btn-primary">
+          开始分析
+        </button>
 
-/** 转义 HTML 特殊字符 */
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.appendChild(document.createTextNode(str));
-  return div.innerHTML;
-}
+        <!-- 进度条 -->
+        <div id="progressSection" class="progress-section" style="display:none;">
+          <div class="progress-info">
+            <span id="progressLabel">分析中…</span>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="progress-track">
+            <div id="progressBar" class="progress-fill"></div>
+          </div>
+        </div>
 
-/** 更新输入计数 */
-function updateCount() {
-  feedbacks = parseFeedbacks();
-  countHint.textContent = `已输入 ${feedbacks.length} 条`;
-}
+        <!-- 错误横幅 -->
+        <div id="errorBanner" class="error-banner" style="display:none;">
+          <span class="error-icon">⚠️</span>
+          <span id="errorText"></span>
+          <button id="dismissError" class="error-dismiss">&times;</button>
+        </div>
+      </section>
 
-// ──────────────────────────────────────────────
-// 错误提示
-// ──────────────────────────────────────────────
+      <!-- 中栏：可视化图表区 -->
+      <section class="panel panel-charts" id="panelCharts">
+        <div class="panel-header">
+          <h2>📊 分析概览</h2>
+        </div>
 
-function showError(msg) {
-  errorText.textContent = msg;
-  errorBanner.style.display = 'flex';
-}
+        <!-- 初始占位 -->
+        <div id="chartsPlaceholder" class="charts-placeholder">
+          <div class="empty-icon">📈</div>
+          <p>分析完成后此处展示图表</p>
+        </div>
 
-function hideError() {
-  errorBanner.style.display = 'none';
-}
+        <!-- 图表内容（分析完成后显示） -->
+        <div id="chartsContent" class="charts-content" style="display:none;">
 
-dismissError.addEventListener('click', hideError);
+          <!-- 情绪分布饼图 -->
+          <div class="chart-card">
+            <div class="chart-card-title">情绪分布</div>
+            <div class="chart-canvas-wrap">
+              <canvas id="sentimentChart"></canvas>
+            </div>
+          </div>
 
-// ──────────────────────────────────────────────
-// 进度条
-// ──────────────────────────────────────────────
+          <!-- 问题类型柱状图 -->
+          <div class="chart-card">
+            <div class="chart-card-title">问题类型分布</div>
+            <div class="chart-canvas-wrap">
+              <canvas id="categoryChart"></canvas>
+            </div>
+          </div>
 
-function showProgress() {
-  progressSection.style.display = 'block';
-}
+          <!-- 高频关键词 -->
+          <div class="chart-card keywords-card">
+            <div class="chart-card-title">高频关键词 <span class="chart-card-sub">TOP 10</span></div>
+            <div id="keywordsList" class="keywords-list"></div>
+          </div>
 
-function updateProgress(current, total) {
-  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
-  progressLabel.textContent = `分析中… ${current} / ${total}`;
-  progressPercent.textContent = `${pct}%`;
-  progressBar.style.width = `${pct}%`;
-}
+          <!-- 导出报告按钮 -->
+          <button id="exportBtn" class="btn-export" disabled>
+            📄 导出报告
+          </button>
 
-function hideProgress() {
-  progressSection.style.display = 'none';
-}
+        </div>
+      </section>
 
-// ──────────────────────────────────────────────
-// DeepSeek API 调用
-// ──────────────────────────────────────────────
+      <!-- 右栏：结果卡片列表 -->
+      <section class="panel panel-results">
+        <div class="panel-header">
+          <h2>📋 分析结果</h2>
+          <span class="hint" id="resultHint"></span>
+        </div>
 
-/**
- * 分析单条反馈
- * @param {string} feedback - 单条反馈文本
- * @returns {Promise<object>} { feedback, sentiment, category, insight }
- */
-async function analyzeOne(feedback) {
-  const resp = await fetch(API_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL_NAME,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user',   content: feedback },
-      ],
-      temperature: 0.3,
-      max_tokens: 150,
-      response_format: { type: 'json_object' },
-    }),
-    signal: abortCtrl.signal,
-  });
+        <div id="resultsContainer" class="results-container">
+          <!-- 空状态 -->
+          <div id="emptyState" class="empty-state">
+            <div class="empty-icon">📝</div>
+            <p>在左侧输入反馈后点击"开始分析"</p>
+            <p class="empty-sub">分析结果将以卡片形式展示在这里</p>
+          </div>
+        </div>
+      </section>
 
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`HTTP ${resp.status}${body ? ': ' + body : ''}`);
-  }
+    </main>
 
-  const data = await resp.json();
-  const content = data.choices?.[0]?.message?.content;
+    <!-- ====== 报告预览模态弹窗 ====== -->
+    <div id="reportModal" class="modal-overlay" style="display:none;">
+      <div class="modal-box">
+        <!-- 弹窗头部 -->
+        <div class="modal-header">
+          <span class="modal-title">📄 分析报告预览</span>
+          <button id="modalClose" class="modal-close">&times;</button>
+        </div>
 
-  if (!content) {
-    throw new Error('API 返回为空');
-  }
+        <!-- 弹窗内容（markdown 渲染结果） -->
+        <div id="modalBody" class="modal-body"></div>
 
-  // 解析 JSON（兼容 markdown 代码块包裹的情况）
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    const cleaned = content.replace(/```json\n?|```/g, '').trim();
-    parsed = JSON.parse(cleaned);
-  }
+        <!-- 弹窗底部按钮 -->
+        <div class="modal-footer">
+          <button id="copyReportBtn" class="btn-outline">
+            📋 复制报告
+          </button>
+          <button id="downloadReportBtn" class="btn-solid">
+            💾 下载报告
+          </button>
+        </div>
+      </div>
+    </div>
 
-  return {
-    feedback,
-    sentiment: parsed.sentiment ?? '中性',
-    category:  parsed.category  ?? '其他',
-    insight:   parsed.insight   ?? '暂无',
-  };
-}
-
-// ──────────────────────────────────────────────
-// 渲染结果卡片
-// ──────────────────────────────────────────────
-
-function renderResultCard(result) {
-  const card = document.createElement('div');
-  card.className = 'result-card';
-
-  // 情绪 → class 映射
-  const sentClassMap = {
-    '正面': 'positive',
-    '负面': 'negative',
-    '中性': 'neutral',
-  };
-  const sentClass = sentClassMap[result.sentiment] || 'neutral';
-
-  card.innerHTML = [
-    `<div class="card-feedback">${escapeHtml(result.feedback)}</div>`,
-    `<div class="card-tags">`,
-      `<span class="tag-sentiment tag-${sentClass}">${escapeHtml(result.sentiment)}</span>`,
-      `<span class="tag-category">${escapeHtml(result.category)}</span>`,
-    `</div>`,
-    `<div class="card-insight">${escapeHtml(result.insight)}</div>`,
-  ].join('');
-
-  resultsContainer.appendChild(card);
-  // 滚动到最新卡片
-  resultsContainer.scrollTop = resultsContainer.scrollHeight;
-}
-
-/** 渲染错误卡片（API 调用失败时） */
-function renderErrorCard(feedback, errMsg) {
-  const card = document.createElement('div');
-  card.className = 'result-card';
-
-  card.innerHTML = [
-    `<div class="card-feedback">${escapeHtml(feedback)}</div>`,
-    `<div class="card-tags">`,
-      `<span class="tag-sentiment tag-neutral">错误</span>`,
-      `<span class="tag-category" style="background:#fdf2f2;color:#e03e3e;">请求失败</span>`,
-    `</div>`,
-    `<div class="card-insight" style="color:#e03e3e;">${escapeHtml(errMsg)}</div>`,
-  ].join('');
-
-  resultsContainer.appendChild(card);
-  resultsContainer.scrollTop = resultsContainer.scrollHeight;
-}
-
-// ──────────────────────────────────────────────
-// 主流程：开始分析
-// ──────────────────────────────────────────────
-
-analyzeBtn.addEventListener('click', async () => {
-  // --- 校验 ---
-  if (isAnalyzing) return;
-
-  feedbacks = parseFeedbacks();
-  if (feedbacks.length === 0) {
-    showError('请先在输入框中粘贴反馈内容（每行一条）。');
-    return;
-  }
-
-  if (DEEPSEEK_API_KEY === 'YOUR_DEEPSEEK_API_KEY_HERE') {
-    showError('请先在 app.js 中将 DEEPSEEK_API_KEY 替换为你的真实 API Key。');
-    return;
-  }
-
-  // --- 重置状态 ---
-  hideError();
-  results = [];
-  isAnalyzing = true;
-  abortCtrl = new AbortController();
-
-  // --- 清空旧结果 ---
-  resultsContainer.querySelectorAll('.result-card').forEach(c => c.remove());
-  emptyState.style.display = 'none';
-  resultHint.textContent = '';
-
-  // --- 按钮 loading ---
-  analyzeBtn.disabled = true;
-  analyzeBtn.innerHTML = '<span class="spinner"></span>分析中…';
-
-  // --- 进度条 ---
-  showProgress();
-  updateProgress(0, feedbacks.length);
-
-  // --- 逐条分析 ---
-  let completed = 0;
-
-  for (const fb of feedbacks) {
-    try {
-      const result = await analyzeOne(fb);
-      results.push(result);
-      renderResultCard(result);
-    } catch (err) {
-      // 用户主动取消
-      if (err.name === 'AbortError') {
-        break;
-      }
-      // API 调用失败
-      results.push({ feedback: fb, sentiment: '错误', category: '—', insight: err.message });
-      renderErrorCard(fb, err.message);
-    }
-
-    completed++;
-    updateProgress(completed, feedbacks.length);
-  }
-
-  // --- 收尾 ---
-  resultHint.textContent = `共 ${results.length} 条结果`;
-  analyzeBtn.disabled = false;
-  analyzeBtn.innerHTML = '开始分析';
-  isAnalyzing = false;
-  abortCtrl = null;
-
-  // 如果全部失败（0 条成功），恢复空状态
-  const successCount = results.filter(r => r.sentiment !== '错误').length;
-  if (results.length === 0) {
-    emptyState.style.display = 'flex';
-    resultHint.textContent = '';
-  }
-
-  hideProgress();
-});
-
-// ──────────────────────────────────────────────
-// 输入框实时计数
-// ──────────────────────────────────────────────
-feedbackInput.addEventListener('input', updateCount);
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <!-- marked.js CDN —Markdown 渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+  </html>
